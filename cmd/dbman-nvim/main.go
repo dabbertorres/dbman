@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -41,6 +42,7 @@ func main() {
 		p.HandleCommand(listConnections(&state))
 		p.HandleCommand(listSchemas(&state))
 		p.HandleCommand(listTables(&state))
+		p.HandleCommand(describeTable(&state))
 		p.HandleCommand(switchConnection(&state))
 		p.HandleCommand(runQuery(&state))
 		return nil
@@ -476,29 +478,28 @@ func (s *pluginState) displaySchemas(batch *nvim.Batch, shiftwidth, maxWidth int
 }
 
 func passwordPrompt(api *nvim.Nvim) func(user, instruction string, questions []string, echos []bool) (answers []string, err error) {
-	// assuming only a single prompt
 	return func(_, _ string, questions []string, echos []bool) (answers []string, err error) {
+		answers = make([]string, len(questions))
+		batch := api.NewBatch()
+
+		var outOfMem int
+		batch.Call("inputsave", &outOfMem)
 		for i, q := range questions {
-			var (
-				output string
-				err    error
-			)
 			if echos[i] {
-				output, err = api.CommandOutput(fmt.Sprintf(`input("%s")`, q))
+				batch.Call("input", &answers[i], q)
 			} else {
-				var ret int
-				batch := api.NewBatch()
-				batch.Call("inputsave", &ret)
-				batch.Call("inputsecret", &output, q)
-				batch.Call("inputrestore", &ret)
-				err = batch.Execute()
+				batch.Call("inputsecret", &answers[i], q)
 			}
-			if err != nil {
-				return nil, err
-			}
-			answers = append(answers, output)
 		}
-		return answers, err
+		batch.Call("inputrestore", &outOfMem)
+
+		if err := batch.Execute(); err != nil {
+			return nil, err
+		}
+		if outOfMem != 0 {
+			return nil, errors.New("ran out of memory")
+		}
+		return answers, nil
 	}
 }
 
