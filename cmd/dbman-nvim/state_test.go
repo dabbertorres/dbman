@@ -159,11 +159,11 @@ func Test_pluginState_refreshCache(t *testing.T) {
 
 	mockdb.EXPECT().
 		ListTables("private").
-		Return([]string{"qux"}, error(nil)).
+		Return([]string{"private.qux"}, error(nil)).
 		Times(1)
 
 	mockdb.EXPECT().
-		DescribeTable("public.foo").
+		DescribeTable("foo").
 		Return(&dbman.TableSchema{
 			Name: "foo",
 			Columns: []dbman.ColumnSchema{

@@ -132,12 +132,9 @@ func (s *pluginState) refreshCache() error {
 	}
 
 	cache := make([]schemaState, len(schemaNames))
-	for i, schema := range schemaNames {
-		cache[i].Name = schema
-	}
-
 	for i, name := range schemaNames {
 		schema := &cache[i]
+		schema.Name = name
 		tables, err := s.db.ListTables(name)
 		if err != nil {
 			return err
@@ -145,7 +142,7 @@ func (s *pluginState) refreshCache() error {
 
 		schema.Tables = make([]dbman.TableSchema, len(tables))
 		for i, name := range tables {
-			tableSchema, err := s.db.DescribeTable(schema.Name + "." + name)
+			tableSchema, err := s.db.DescribeTable(name)
 			if err != nil {
 				return err
 			}
