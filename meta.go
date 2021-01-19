@@ -3,7 +3,6 @@ package dbman
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -139,7 +138,7 @@ func (m dbMeta) DescribeTable(tablename string) (*TableSchema, error) {
 		table = parts[0]
 
 	default:
-		return nil, errors.New("invalid table name")
+		return nil, fmt.Errorf("invalid table name: '%s'", tablename)
 	}
 
 	rows, err := m.Query(`SELECT column_name, data_type, column_default, is_nullable, udt_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`, schema, table)
@@ -149,7 +148,7 @@ func (m dbMeta) DescribeTable(tablename string) (*TableSchema, error) {
 	defer rows.Close()
 
 	result := TableSchema{
-		Name: tablename,
+		Name: table,
 	}
 	for rows.Next() {
 		var col ColumnSchema

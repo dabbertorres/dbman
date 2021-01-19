@@ -140,8 +140,8 @@ func (c *cli) help() {
 }
 
 func (c *cli) activeConnection(args []string) error {
-	if c.db.CurrentName != "" {
-		c.println(c.db.CurrentName)
+	if c.db.CurrentName() != "" {
+		c.println(c.db.CurrentName())
 	} else {
 		c.println("no active connection")
 	}

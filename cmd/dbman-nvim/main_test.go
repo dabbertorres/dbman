@@ -23,7 +23,9 @@ func initTestEnv(t *testing.T, register func(*plugin.Plugin)) (n *nvim.Nvim, p *
 	}
 
 	p = plugin.New(n)
-	register(p)
+	if register != nil {
+		register(p)
+	}
 
 	if err := p.RegisterForTests(); err != nil {
 		t.Fatal(err)
@@ -48,13 +50,15 @@ func Test_listConnections(t *testing.T) {
 			},
 		},
 	}
+
+	db := dbman.New(&cfg)
+	defer db.Close()
 	state := &pluginState{
-		db:           dbman.New(&cfg),
+		db:           db,
 		displayBuf:   -1,
 		displayWin:   -1,
 		displayCache: make(map[string][]schemaState),
 	}
-	defer state.db.Close()
 
 	n, _ := initTestEnv(t, func(p *plugin.Plugin) {
 		p.HandleCommand(listConnections(state))

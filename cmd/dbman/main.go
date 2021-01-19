@@ -26,7 +26,9 @@ func main() {
 	flag.Parse()
 
 	var cfg dbman.Config
-	dbman.LoadConfig(configFile, configFile == dbman.DefaultConfigFile, &cfg)
+	if err := dbman.LoadConfig(configFile, configFile == dbman.DefaultConfigFile, &cfg); err != nil {
+		log.Fatal(err)
+	}
 
 	switch {
 	case list:

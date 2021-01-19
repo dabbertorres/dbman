@@ -17,7 +17,7 @@ import (
 type DBMan struct {
 	cfg            *Config
 	current        metaQuerier
-	CurrentName    string
+	currentName    string
 	activeQueriers map[string]metaQuerier
 	activeTunnels  map[string]*Tunnel
 }
@@ -26,7 +26,7 @@ func New(cfg *Config) *DBMan {
 	return &DBMan{
 		cfg:            cfg,
 		current:        nil,
-		CurrentName:    "",
+		currentName:    "",
 		activeQueriers: make(map[string]metaQuerier),
 		activeTunnels:  make(map[string]*Tunnel),
 	}
@@ -42,6 +42,10 @@ func (d *DBMan) Close() error {
 	}
 
 	return nil
+}
+
+func (d *DBMan) CurrentName() string {
+	return d.currentName
 }
 
 func (d *DBMan) ListConnections() (names []string, active []bool) {
@@ -65,7 +69,7 @@ func (d *DBMan) SwitchConnection(connName string, prompter ssh.KeyboardInteracti
 	querier, ok := d.activeQueriers[connName]
 	if ok {
 		d.current = querier
-		d.CurrentName = connName
+		d.currentName = connName
 		return nil
 	}
 
@@ -128,7 +132,7 @@ func (d *DBMan) SwitchConnection(connName string, prompter ssh.KeyboardInteracti
 
 	d.activeQueriers[connName] = querier
 	d.current = querier
-	d.CurrentName = connName
+	d.currentName = connName
 	return nil
 }
 

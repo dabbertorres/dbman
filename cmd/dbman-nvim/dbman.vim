@@ -13,6 +13,7 @@ call remote#host#RegisterPlugin('dbman-nvim', '0', [
 \ {'type': 'command', 'name': 'DBConnect', 'sync': 1, 'opts': {'complete': 'custom,DBConnectionsF', 'nargs': '1'}},
 \ {'type': 'command', 'name': 'DBConnections', 'sync': 1, 'opts': {'nargs': '0'}},
 \ {'type': 'command', 'name': 'DBDescribe', 'sync': 1, 'opts': {'nargs': '1'}},
+\ {'type': 'command', 'name': 'DBRefresh', 'sync': 1, 'opts': {'nargs': '0'}},
 \ {'type': 'command', 'name': 'DBRun', 'sync': 1, 'opts': {'addr': 'lines', 'bar': '', 'nargs': '?', 'range': '%'}},
 \ {'type': 'command', 'name': 'DBSchemas', 'sync': 1, 'opts': {'nargs': '0'}},
 \ {'type': 'command', 'name': 'DBTables', 'sync': 1, 'opts': {'nargs': '*'}},

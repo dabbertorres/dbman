@@ -58,42 +58,57 @@ const (
 	AgentAuth     AuthMethod = "agent"
 )
 
-func LoadConfig(filepath string, isDefault bool, cfg *Config) {
+func LoadConfig(filepath string, isDefault bool, cfg *Config) error {
 	f, err := os.Open(filepath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			if isDefault {
 				f, err = os.Create(filepath)
 				if err != nil {
-					log.Fatal("failed to create default config file:", err)
+					return fmt.Errorf("failed to create default config file: %w", err)
 				}
 				defer f.Close()
-				cfg.Connections = make(map[string]Connection)
+				cfg.Connections = map[string]Connection{
+					// example
+					"localdb": {
+						Host:     "localhost",
+						Port:     5432,
+						Database: "postgres",
+						Username: "postgres",
+						Password: "postgres",
+						Driver:   "postgres",
+						DriverOpts: map[string]string{
+							"sslmode": "ignore",
+						},
+						ConnectTimeoutSec: 30,
+						MaxOpenConns:      4,
+					},
+				}
 				cfg.Tunnels = make(map[string]SSHTunnel)
 				json.NewEncoder(f).Encode(cfg)
 
-				log.Print("Default config file could not be found at ~/.config/dbman/config.json")
-				log.Fatal("An empty config has been created - please fill it out.")
+				return fmt.Errorf("default config file could not be found at '%s'; an empty config has been created with an example", "~/.config/dbman/config.json")
 			}
 
-			log.Fatalf("%s could not be found: %v", filepath, err)
+			return fmt.Errorf("%s could not be found: %v", filepath, err)
 		}
 
-		log.Fatalf("could not open %s: %v", filepath, err)
+		return fmt.Errorf("could not open %s: %v", filepath, err)
 	}
 	defer f.Close()
 
 	if err := json.NewDecoder(f).Decode(cfg); err != nil {
-		log.Fatal("invalid config json:", err)
+		return fmt.Errorf("invalid config json: %w", err)
 	}
 
 	if err := cfg.validate(); err != nil {
-		log.Fatal("invalid config:", err)
+		return fmt.Errorf("invalid config: %w", err)
 	}
 
 	if len(cfg.Connections) == 0 {
-		log.Fatal("no connections defined in " + filepath)
+		return fmt.Errorf("no connections defined in '%s'", filepath)
 	}
+	return nil
 }
 
 func (c *Config) validate() error {
