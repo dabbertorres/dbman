@@ -91,7 +91,8 @@ Launch neovim! Here are the list of commands:
 
 ## Status
 
-This started as nothing but a prototype on the side, that evolved into what it is
-now. Needless to say, the code needs a good amount of cleanup.
+This started as nothing but a proof of concept prototype to answer a question, on the side,
+which evolved into what it is now. Needless to say, the code needs a good amount of cleanup
+(Let alone more tests, documentation, the usual, etc).
 Otherwise, I've actually used it to connect to more than local scratch databases,
 and it's worked fine for my needs.
