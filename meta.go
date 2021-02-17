@@ -3,6 +3,8 @@ package dbman
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -60,12 +62,37 @@ type dbMeta struct {
 	querier
 }
 
+// TODO use SELECT CURRENT_SCHEMA() to decide when and when not to join schema names to table names
+
 func (m dbMeta) ListTables() ([]string, error) {
-	return m.ListTablesInSchema("public")
+	rows, err := m.Query(`SELECT table_schema, table_name FROM information_schema.tables
+                          WHERE table_schema NOT LIKE 'pg_%'
+                          AND table_schema <> 'information_schema'
+                          ORDER BY table_schema, table_name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var (
+			schema string
+			table  string
+		)
+		if err := rows.Scan(&schema, &table); err != nil {
+			return nil, err
+		}
+		tables = append(tables, schema+"."+table)
+	}
+
+	return tables, nil
 }
 
 func (m dbMeta) ListTablesInSchema(schema string) ([]string, error) {
-	rows, err := m.Query(`SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, schema)
+	rows, err := m.Query(`SELECT table_name FROM information_schema.tables
+                          WHERE table_schema = $1
+                          ORDER BY table_name`, schema)
 	if err != nil {
 		return nil, err
 	}
@@ -83,26 +110,26 @@ func (m dbMeta) ListTablesInSchema(schema string) ([]string, error) {
 	return tables, rows.Err()
 }
 
-var ignoreSchemas = []string{
-	"pg_*",
-	"information_schema",
-}
-
-func isIgnoredSchema(name string) bool {
-	for _, ign := range ignoreSchemas {
-		if ign == name {
-			return true
-		} else if strings.HasSuffix(ign, "*") {
-			if strings.HasPrefix(name, ign[:len(ign)-1]) {
-				return true
-			}
-		}
+var (
+	ignoreSchemas = []string{
+		"pg_*",
+		"information_schema",
 	}
-	return false
-}
+
+	// for use in Query() calls
+	ignoreSchemasIface = func() []interface{} {
+		out := make([]interface{}, len(ignoreSchemas))
+		for i, n := range ignoreSchemas {
+			out[i] = n
+		}
+		return out
+	}()
+)
 
 func (m dbMeta) ListSchemas() ([]string, error) {
-	rows, err := m.Query(`SELECT schema_name FROM information_schema.schemata`)
+	rows, err := m.Query(`SELECT schema_name FROM information_schema.schemata
+                          WHERE schema_name NOT LIKE 'pg_%'
+                          AND schema_name <> 'information_schema'`)
 	if err != nil {
 		return nil, err
 	}
@@ -114,9 +141,7 @@ func (m dbMeta) ListSchemas() ([]string, error) {
 		if err := rows.Scan(&name); err != nil {
 			return nil, err
 		}
-		if !isIgnoredSchema(name) {
-			schemas = append(schemas, name)
-		}
+		schemas = append(schemas, name)
 	}
 
 	return schemas, nil
@@ -141,7 +166,9 @@ func (m dbMeta) DescribeTable(tablename string) (*TableSchema, error) {
 		return nil, fmt.Errorf("invalid table name: '%s'", tablename)
 	}
 
-	rows, err := m.Query(`SELECT column_name, data_type, column_default, is_nullable, udt_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`, schema, table)
+	rows, err := m.Query(`SELECT column_name, column_default, is_nullable, data_type, udt_schema, udt_name FROM information_schema.columns
+                          WHERE table_schema = $1 AND table_name = $2
+                          ORDER BY ordinal_position`, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -154,23 +181,24 @@ func (m dbMeta) DescribeTable(tablename string) (*TableSchema, error) {
 		var col ColumnSchema
 
 		var (
-			defaultVal *string
-			nullable   string
-			userType   string
+			defaultVal     sql.NullString
+			nullable       yesOrNo
+			userTypeSchema sql.NullString
+			userType       sql.NullString
 		)
-		if err := rows.Scan(&col.Name, &col.Type, &defaultVal, &nullable, &userType); err != nil {
+		if err := rows.Scan(&col.Name, &defaultVal, &nullable, &col.Type, &userTypeSchema, &userType); err != nil {
 			return nil, err
 		}
 
 		if col.Type == "USER-DEFINED" {
-			col.Type = userType
+			col.Type = userTypeSchema.String + "." + userType.String
 		}
 
-		if defaultVal != nil {
-			col.Attrs = append(col.Attrs, "DEFAULT "+*defaultVal)
+		if defaultVal.Valid {
+			col.Attrs = append(col.Attrs, "DEFAULT "+defaultVal.String)
 		}
 
-		if nullable == "YES" {
+		if nullable {
 			col.Attrs = append(col.Attrs, "NULL")
 		} else {
 			col.Attrs = append(col.Attrs, "NOT NULL")
@@ -180,4 +208,42 @@ func (m dbMeta) DescribeTable(tablename string) (*TableSchema, error) {
 	}
 
 	return &result, rows.Err()
+}
+
+type yesOrNo bool
+
+func parseYesOrNo(s string) (yesOrNo, error) {
+	switch s {
+	case "YES", "yes":
+		return true, nil
+	case "NO", "no":
+		return false, nil
+	default:
+		return false, errors.New("yesOrNo: invalid value")
+	}
+}
+
+func (v yesOrNo) Value() (driver.Value, error) {
+	if v {
+		return "YES", nil
+	} else {
+		return "NO", nil
+	}
+}
+
+func (v *yesOrNo) Scan(src interface{}) error {
+	switch srcVal := src.(type) {
+	case string:
+		var err error
+		*v, err = parseYesOrNo(srcVal)
+		return err
+
+	case []byte:
+		var err error
+		*v, err = parseYesOrNo(string(srcVal))
+		return err
+
+	default:
+		return errors.New("yesOrNo: incompatible type")
+	}
 }

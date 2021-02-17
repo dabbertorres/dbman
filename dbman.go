@@ -9,17 +9,18 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 )
 
 type DBMan struct {
-	cfg            *Config
 	current        metaQuerier
-	currentName    string
+	cfg            *Config
 	activeQueriers map[string]metaQuerier
 	activeTunnels  map[string]*Tunnel
+	currentName    string
 }
 
 func New(cfg *Config) *DBMan {
@@ -205,7 +206,40 @@ func (d *DBMan) Query(script string) (*QueryResult, error) {
 	)
 	for i, col := range columns {
 		result.Columns[i] = col.Name()
-		scanners[i] = reflect.New(col.ScanType()).Interface()
+		switch strings.ToUpper(col.DatabaseTypeName()) {
+		case "CHARACTER", "CHAR", "CHARACTER VARYING", "VARCHAR", "NVARCHAR", "TEXT":
+			scanners[i] = new(nullString)
+
+		case "BOOL", "BOOLEAN":
+			scanners[i] = new(nullBool)
+
+		case "BIGINT", "INT8", "BIGSERIAL", "SERIAL8", "INTERVAL":
+			scanners[i] = new(nullInt64)
+
+		case "INTEGER", "INT", "INT4", "SERIAL", "SERIAL4":
+			scanners[i] = new(nullInt32)
+
+		case "SMALLINT", "INT2", "SMALLSERIAL", "SERIAL2":
+			scanners[i] = new(nullInt16)
+
+		case "DOUBLE", "FLOAT8", "NUMERIC", "DECIMAL":
+			scanners[i] = new(nullFloat64)
+
+		case "REAL", "FLOAT4":
+			scanners[i] = new(nullFloat32)
+
+		case "TIMESTAMP", "TIMESTAMPTZ", "TIME", "TIMETZ", "DATE":
+			scanners[i] = new(nullTime)
+
+		case "UUID":
+			scanners[i] = new(uuidVal)
+
+		case "ARRAY":
+			scanners[i] = new([]interface{})
+
+		default:
+			scanners[i] = reflect.New(col.ScanType()).Interface()
+		}
 	}
 
 	for rows.Next() {
@@ -226,10 +260,4 @@ func (d *DBMan) Query(script string) (*QueryResult, error) {
 	}
 
 	return &result, rows.Err()
-}
-
-type nullValue struct{}
-
-func (nullValue) String() string {
-	return "NULL"
 }

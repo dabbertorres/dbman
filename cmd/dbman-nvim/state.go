@@ -23,9 +23,11 @@ type dbManager interface {
 
 type pluginState struct {
 	db           dbManager
+	displayCache map[string][]schemaState
 	displayBuf   nvim.Buffer
 	displayWin   nvim.Window
-	displayCache map[string][]schemaState // connection -> schemas -> tables
+	outputBuf    nvim.Buffer
+	outputWin    nvim.Window
 }
 
 type schemaState struct {
@@ -95,9 +97,18 @@ func (s *pluginState) displaySchemas(api *nvim.Nvim, refreshCache bool) error {
 	}
 
 	if refreshCache {
+		api.WriteOut("refreshing cache...\n")
 		if err := s.refreshCache(); err != nil {
+			api.WritelnErr("failed: " + err.Error())
 			return err
 		}
+		api.WriteOut("done\n")
+	}
+
+	api.WriteOut("schemas:\n")
+	schemas := s.displayCache[s.db.CurrentName()]
+	for _, schema := range schemas {
+		api.WriteOut("schema: " + schema.Name + "\n")
 	}
 
 	var (
@@ -130,6 +141,7 @@ func (s *pluginState) refreshCache() error {
 	if err != nil {
 		return err
 	}
+	log.Printf("schemas: %#v\n", schemaNames)
 
 	cache := make([]schemaState, len(schemaNames))
 	for i, name := range schemaNames {

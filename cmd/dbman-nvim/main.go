@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"regexp"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -30,7 +29,9 @@ func main() {
 	}
 
 	plugin.Main(func(p *plugin.Plugin) error {
-		p.HandleFunction(listConnectionsCompletion(&state))
+		p.HandleFunction(listConnectionsFunc(&state))
+		p.HandleFunction(listTablesFunc(&state))
+
 		p.HandleCommand(listConnections(&state))
 		p.HandleCommand(listSchemas(&state))
 		p.HandleCommand(listTables(&state))
@@ -42,13 +43,44 @@ func main() {
 	})
 }
 
-func listConnectionsCompletion(state *pluginState) (*plugin.FunctionOptions, func(*nvim.Nvim, []interface{}) (string, error)) {
+func listConnectionsFunc(state *pluginState) (*plugin.FunctionOptions, func(*nvim.Nvim, []interface{}) (string, error)) {
 	opts := &plugin.FunctionOptions{
-		Name: "DBConnectionsF",
+		Name: "DBConnections",
 	}
 	return opts, func(*nvim.Nvim, []interface{}) (string, error) {
 		names, _ := state.db.ListConnections()
 		return strings.Join(names, "\n") + "\n", nil
+	}
+}
+
+func listTablesFunc(state *pluginState) (*plugin.FunctionOptions, func(*nvim.Nvim, []interface{}) (string, error)) {
+	opts := &plugin.FunctionOptions{
+		Name: "DBTables",
+	}
+	return opts, func(*nvim.Nvim, []interface{}) (string, error) {
+		cache, ok := state.displayCache[state.db.CurrentName()]
+		if !ok {
+			if err := state.refreshCache(); err != nil {
+				return "", err
+			}
+			cache = state.displayCache[state.db.CurrentName()]
+		}
+
+		var numTables int
+		for _, schema := range cache {
+			numTables += len(schema.Tables)
+		}
+		tables := make([]string, numTables)
+
+		var offset int
+		for _, schema := range cache {
+			for i, table := range schema.Tables {
+				tables[offset+i] = table.Name
+			}
+			offset += len(schema.Tables)
+		}
+
+		return strings.Join(tables, "\n") + "\n", nil
 	}
 }
 
@@ -121,9 +153,10 @@ func listTables(state *pluginState) (*plugin.CommandOptions, func(*nvim.Nvim, []
 
 func describeTable(state *pluginState) (*plugin.CommandOptions, func(*nvim.Nvim, []string) error) {
 	opts := &plugin.CommandOptions{
-		Name:  "DBDescribe",
-		NArgs: "1",
-		Bar:   true,
+		Name:     "DBDescribe",
+		NArgs:    "1",
+		Bar:      true,
+		Complete: "custom,DBTables",
 	}
 	return opts, func(api *nvim.Nvim, args []string) error {
 		table := strings.TrimSpace(args[0])
@@ -146,24 +179,25 @@ func switchConnection(state *pluginState) (*plugin.CommandOptions, func(*nvim.Nv
 	opts := &plugin.CommandOptions{
 		Name:     "DBConnect",
 		NArgs:    "1",
-		Complete: "custom,DBConnectionsF",
+		Complete: "custom,DBConnections",
 	}
 	return opts, func(api *nvim.Nvim, args []string) error {
-		if err := state.db.SwitchConnection(strings.TrimSpace(args[0]), passwordPrompt(api)); err != nil {
-			api.WritelnErr(fmt.Sprintf("failed to connect to '%s': %v", args[0], err))
-			return err
-		}
-
-		autoDisplay := true
-		_ = api.Var("db_auto_display_schema", &autoDisplay)
-
-		if autoDisplay {
-			if err := state.displaySchemas(api, true); err != nil {
-				return err
+		go func() {
+			if err := state.db.SwitchConnection(strings.TrimSpace(args[0]), passwordPrompt(api)); err != nil {
+				api.WritelnErr(fmt.Sprintf("failed to connect to '%s': %v", args[0], err))
+				return
 			}
-		}
+			api.WriteOut(fmt.Sprintf("connected to '%s'!\n", args[0]))
 
-		api.WriteOut(fmt.Sprintf("connected to '%s'!\n", args[0]))
+			autoDisplay := true
+			_ = api.Var("db_auto_display_schema", &autoDisplay)
+
+			if autoDisplay {
+				if err := state.displaySchemas(api, true); err != nil {
+					api.WritelnErr("failed to display schema: " + err.Error())
+				}
+			}
+		}()
 		return nil
 	}
 }
@@ -174,9 +208,11 @@ func refreshSchema(state *pluginState) (*plugin.CommandOptions, func(*nvim.Nvim)
 		NArgs: "0",
 	}
 	return opts, func(api *nvim.Nvim) error {
-		if err := state.displaySchemas(api, true); err != nil {
-			api.WriteErr("failed to update and display schema: " + err.Error())
-		}
+		go func() {
+			if err := state.displaySchemas(api, true); err != nil {
+				api.WritelnErr("failed to update and display schema: " + err.Error())
+			}
+		}()
 		return nil
 	}
 }
@@ -189,7 +225,7 @@ func runQuery(state *pluginState) (*plugin.CommandOptions, func(*nvim.Nvim, []st
 		Addr:  "lines",
 		Bar:   true,
 	}
-	return opts, func(api *nvim.Nvim, args []string, bufRange [2]int) error {
+	return opts, func(api *nvim.Nvim, _ []string, bufRange [2]int) error {
 		// grab the query
 		queryBuffer, err := api.CurrentBuffer()
 		if err != nil {
@@ -217,19 +253,18 @@ func runQuery(state *pluginState) (*plugin.CommandOptions, func(*nvim.Nvim, []st
 		// format it!
 		marks := make([]string, len(result.Columns))
 		for i := range marks {
-			marks[i] = " %v"
+			marks[i] = "%v"
 		}
-		printFmt := strings.Join(marks, "\t") + "\n"
+		printFmt := strings.Join(marks, " |\t") + "\t\n"
 
 		var sb strings.Builder
-		writer := tabwriter.NewWriter(&sb, 2, 2, 1, ' ', tabwriter.Debug)
+		writer := tabwriter.NewWriter(&sb, 3, 4, 1, ' ', tabwriter.AlignRight)
 
 		colNames := make([]interface{}, len(result.Columns))
 		for i, col := range result.Columns {
 			colNames[i] = col
 		}
-		length, _ := fmt.Fprintf(writer, printFmt, colNames...)
-		fmt.Fprintln(writer, strings.Repeat("-", length))
+		fmt.Fprintf(writer, printFmt, colNames...)
 
 		for _, row := range result.Rows {
 			fmt.Fprintf(writer, printFmt, row...)
@@ -239,81 +274,29 @@ func runQuery(state *pluginState) (*plugin.CommandOptions, func(*nvim.Nvim, []st
 			return err
 		}
 
-		var (
-			targetBuffer nvim.Buffer
-			targetWindow nvim.Window
-			reusing      bool // track if we should clear the buffer
-		)
-
-		// did the user specify a buffer?
-		if len(args) != 0 {
-			buf, err := strconv.Atoi(args[0])
+		if state.outputWin == 0 {
+			state.outputBuf, state.outputWin, err = openSplitWindow(api, false, state.outputBuf)
 			if err != nil {
-				return err
-			}
-			targetBuffer = nvim.Buffer(buf)
-			reusing = true
-
-			// if the buffer we're targeting is already in an open window,
-			// use that window - otherwise, open a new window
-			visible, win, err := isBufferVisible(api, targetBuffer)
-			if err != nil {
-				return err
-			}
-
-			if visible {
-				targetWindow = win
-			}
-		}
-
-		if targetWindow == 0 {
-			targetBuffer, _, err = openSplitWindow(api, true, targetBuffer)
-			if err != nil {
-				return err
-			}
-		} else {
-			if err := api.SetCurrentWindow(targetWindow); err != nil {
-				return err
-			}
-		}
-
-		// set the buffer's name to '[connection] query'
-		// if it fails, oh well, doesn't hurt anything
-		_ = api.SetBufferName(targetBuffer, fmt.Sprintf("[%s] %s", state.db.CurrentName(), query))
-
-		if reusing {
-			// may need to clear the buffer of any previous contents
-			if err := api.Command("%d"); err != nil {
 				return err
 			}
 		}
 
 		lines := strings.Split(sb.String(), "\n")
-		if err := api.Put(lines, "l", false, false); err != nil {
+
+		// insert a divider
+		lines = append(lines, "")
+		copy(lines[2:], lines[1:])
+		lines[1] = strings.Repeat("-", len(lines[0]))
+
+		batch := api.NewBatch()
+		batch.SetBufferName(state.outputBuf, fmt.Sprintf("[%s] %s", state.db.CurrentName(), query))
+		batch.SetCurrentWindow(state.outputWin)
+		batch.SetCurrentBuffer(state.outputBuf)
+		batch.Command("%d")
+		batch.Put(lines, "l", false, false)
+		batch.SetWindowCursor(state.outputWin, [2]int{1, 1})
+		if err := batch.Execute(); err != nil {
 			return err
-		}
-
-		maxWidth, err := api.WindowWidth(state.displayWin)
-		if err != nil {
-			api.WriteErr("failed to obtain window width: " + err.Error())
-			return nil
-		}
-
-		// shrink window to fit
-		maxLineLen := len(lines[0])
-		for _, l := range lines[1:] {
-			lineLen := len(l)
-			if lineLen > maxLineLen {
-				maxLineLen = lineLen
-			}
-		}
-
-		// but don't grow the window
-		if maxLineLen < maxWidth {
-			// add 8 (hopefully big enough) to account for Window padding (e.g. gutter)
-			if err := api.SetWindowWidth(state.displayWin, 8+maxLineLen); err != nil {
-				api.WriteErr("failed to set window width: " + err.Error())
-			}
 		}
 
 		autoDisplay := true
@@ -323,7 +306,7 @@ func runQuery(state *pluginState) (*plugin.CommandOptions, func(*nvim.Nvim, []st
 			if matched, _ := regexp.MatchString(` table `, strings.ToLower(query)); matched {
 				go func() {
 					if err := state.displaySchemas(api, true); err != nil {
-						api.WriteErr("failed to update schema display: " + err.Error())
+						api.WritelnErr("failed to update schema display: " + err.Error())
 					}
 				}()
 			}
