@@ -68,16 +68,6 @@ func (s *pluginState) displaySchemas(api *nvim.Nvim, refreshCache bool) error {
 		}
 	}()
 
-	// TODO
-	//if !validBuf {
-	//	var err error
-	//	s.displayBuf, err = api.CreateBuffer(true, true)
-	//	if err != nil {
-	//		return err
-	//	}
-	//	updateDisplays = true
-	//}
-
 	if !validWin {
 		var err error
 		s.displayBuf, s.displayWin, err = openSplitWindow(api, true, 0)
@@ -103,12 +93,6 @@ func (s *pluginState) displaySchemas(api *nvim.Nvim, refreshCache bool) error {
 			return err
 		}
 		api.WriteOut("done\n")
-	}
-
-	api.WriteOut("schemas:\n")
-	schemas := s.displayCache[s.db.CurrentName()]
-	for _, schema := range schemas {
-		api.WriteOut("schema: " + schema.Name + "\n")
 	}
 
 	var (
@@ -154,7 +138,7 @@ func (s *pluginState) refreshCache() error {
 
 		schema.Tables = make([]dbman.TableSchema, len(tables))
 		for i, name := range tables {
-			tableSchema, err := s.db.DescribeTable(name)
+			tableSchema, err := s.db.DescribeTable(schema.Name + "." + name)
 			if err != nil {
 				return err
 			}
@@ -196,13 +180,13 @@ func (s *pluginState) drawSchemas(batch *nvim.Batch, shiftwidth int) int {
 				}
 			}
 			descWriter.Flush()
+			sb.WriteByte('\n')
 		}
 	}
 
 	lines := strings.Split(sb.String(), "\n")
 	// chop off trailing empty line
 	lines = lines[:len(lines)-1]
-	// NOTE: because of setting param after=false, there will be an extra tailing line
 	batch.Put(lines, "l", false, false)
 	return longestLine + 8
 }

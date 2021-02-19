@@ -65,7 +65,7 @@ type dbMeta struct {
 // TODO use SELECT CURRENT_SCHEMA() to decide when and when not to join schema names to table names
 
 func (m dbMeta) ListTables() ([]string, error) {
-	rows, err := m.Query(`SELECT table_schema, table_name FROM information_schema.tables
+	rows, err := m.Query(`SELECT format('%s.%s', table_schema, table_name) FROM information_schema.tables
                           WHERE table_schema NOT LIKE 'pg_%'
                           AND table_schema <> 'information_schema'
                           ORDER BY table_schema, table_name`)
@@ -76,14 +76,11 @@ func (m dbMeta) ListTables() ([]string, error) {
 
 	var tables []string
 	for rows.Next() {
-		var (
-			schema string
-			table  string
-		)
-		if err := rows.Scan(&schema, &table); err != nil {
+		var name string
+		if err := rows.Scan(&name); err != nil {
 			return nil, err
 		}
-		tables = append(tables, schema+"."+table)
+		tables = append(tables, name)
 	}
 
 	return tables, nil
@@ -166,7 +163,8 @@ func (m dbMeta) DescribeTable(tablename string) (*TableSchema, error) {
 		return nil, fmt.Errorf("invalid table name: '%s'", tablename)
 	}
 
-	rows, err := m.Query(`SELECT column_name, column_default, is_nullable, data_type, udt_schema, udt_name FROM information_schema.columns
+	rows, err := m.Query(`SELECT column_name, column_default, is_nullable, data_type, udt_schema, udt_name
+                          FROM information_schema.columns
                           WHERE table_schema = $1 AND table_name = $2
                           ORDER BY ordinal_position`, schema, table)
 	if err != nil {
