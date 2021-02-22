@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"strings"
 	"text/tabwriter"
@@ -54,9 +55,14 @@ func (c *cli) run(initialConnection string) {
 
 	for c.running {
 		line, err := c.terminal.ReadLine()
-		if err != nil && err != term.ErrPasteIndicator {
-			c.println(err)
-			continue
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			if err != term.ErrPasteIndicator {
+				c.println(err)
+				continue
+			}
 		}
 		line = strings.TrimSpace(line)
 
