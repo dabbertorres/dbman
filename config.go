@@ -58,12 +58,17 @@ const (
 	AgentAuth     AuthMethod = "agent"
 )
 
-func LoadConfig(filepath string, isDefault bool, cfg *Config) error {
-	f, err := os.Open(filepath)
+func LoadConfig(filePath string, isDefault bool, cfg *Config) error {
+	f, err := os.Open(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			if isDefault {
-				f, err = os.Create(filepath)
+				dir := filepath.Dir(filePath)
+				if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+					return fmt.Errorf("failed to create default config directory: %w", err)
+				}
+
+				f, err = os.Create(filePath)
 				if err != nil {
 					return fmt.Errorf("failed to create default config file: %w", err)
 				}
@@ -90,10 +95,10 @@ func LoadConfig(filepath string, isDefault bool, cfg *Config) error {
 				return fmt.Errorf("default config file could not be found at '%s'; an empty config has been created with an example", "~/.config/dbman/config.json")
 			}
 
-			return fmt.Errorf("%s could not be found: %v", filepath, err)
+			return fmt.Errorf("%s could not be found: %v", filePath, err)
 		}
 
-		return fmt.Errorf("could not open %s: %v", filepath, err)
+		return fmt.Errorf("could not open %s: %v", filePath, err)
 	}
 	defer f.Close()
 
@@ -106,7 +111,7 @@ func LoadConfig(filepath string, isDefault bool, cfg *Config) error {
 	}
 
 	if len(cfg.Connections) == 0 {
-		return fmt.Errorf("no connections defined in '%s'", filepath)
+		return fmt.Errorf("no connections defined in '%s'", filePath)
 	}
 	return nil
 }
