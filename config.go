@@ -64,7 +64,7 @@ func LoadConfig(filePath string, isDefault bool, cfg *Config) error {
 		if os.IsNotExist(err) {
 			if isDefault {
 				dir := filepath.Dir(filePath)
-				if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+				if err := os.MkdirAll(dir, 0755); err != nil {
 					return fmt.Errorf("failed to create default config directory: %w", err)
 				}
 
