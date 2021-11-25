@@ -1,0 +1,23 @@
+name: Unit Test
+on:
+- pull_request
+- push
+jobs:
+  Ubuntu-Unit-Test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v2
+    - run: go test -v ./...
+  Windows-Unit-Test:
+    runs-on: windows-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v2
+    - run: go test -v ./...
+  OSX-Unit-Test:
+    runs-on: macos-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v2
+    - run: go test -v ./...
